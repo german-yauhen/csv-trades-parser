@@ -1,15 +1,16 @@
 import java.time.LocalDate
 
-data class Trade(
+data class Trade (
     val tradeDate: LocalDate,
-    val type: String,
-    val instrument: String?,
-    val instrumentIsin: String?,
-    val instrumentCurrency: String?,
-    val exchangeDescription: String?,
-    val instrumentSymbol: String?,
+    val instrument: String,
+    val isin: String,
+    val currency: String,
+    val exchange: String,
+    val symbol: String,
     val eventType: String,
-    val quantity: Int?,
-    val price: Double?,
-    val bookedAmount: Double
+    val quantity: Int,
+    val price: Double,
+    val total: Double,
+    val plnExchangeRate: Double,
+    val fee: Double
 )
