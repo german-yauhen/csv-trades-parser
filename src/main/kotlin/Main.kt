@@ -35,6 +35,7 @@ private fun createTradeFromRecord(record: CSVRecord): Trade {
     val (eventType, quantity, price) = extractEventData(record["Event"])
     val tradeDate = LocalDate.parse(record["Trade Date"], DateTimeFormatter.ofPattern("dd-MMM-yyyy"))
     val currency = record["Instrument currency"]
+    val (previousWorkingDate, exchangeRate) = getExchangeRateOfPreviousWorkingDate(currency, tradeDate)
     val total = record["Booked Amount"].toDouble().absoluteValue
     val trade = Trade(
         tradeDate = tradeDate,
@@ -47,8 +48,9 @@ private fun createTradeFromRecord(record: CSVRecord): Trade {
         eventType = eventType,
         quantity = quantity,
         price = price,
-        plnExchangeRate = getExchangeRateOfPreviousWorkingDate(currency, tradeDate),
-        fee = total.minus(price.times(quantity)).toBigDecimal().setScale(2, RoundingMode.HALF_EVEN).toDouble()
+        fee = total.minus(price.times(quantity)).toBigDecimal().setScale(2, RoundingMode.HALF_EVEN).toDouble(),
+        plnExchangeRateDate = previousWorkingDate,
+        plnExchangeRate = exchangeRate
     )
     return trade
 }
@@ -64,14 +66,14 @@ private fun extractEventData(event: String): Triple<String, Int, Double> {
     }
 }
 
-private fun getExchangeRateOfPreviousWorkingDate(currency: String, tradeDate: LocalDate): Double {
+private fun getExchangeRateOfPreviousWorkingDate(currency: String, tradeDate: LocalDate): Pair<LocalDate, Double> {
     var previousWorkingDate = getPreviousWorkingDate(tradeDate)
     var exchangeRate: Double? = getExchangeRate(currency, previousWorkingDate)
     while (exchangeRate == null) {
         previousWorkingDate = getPreviousWorkingDate(previousWorkingDate)
         exchangeRate = getExchangeRate(currency, previousWorkingDate)
     }
-    return exchangeRate
+    return Pair(previousWorkingDate, exchangeRate)
 }
 
 private fun getPreviousWorkingDate(tradeDate: LocalDate) = when (tradeDate.dayOfWeek) {
