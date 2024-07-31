@@ -4,16 +4,51 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.apache.commons.csv.CSVFormat
 import org.apache.commons.csv.CSVRecord
+import org.apache.poi.ss.usermodel.CellType
+import org.apache.poi.ss.usermodel.Sheet
+import org.apache.poi.xssf.usermodel.XSSFWorkbook
+import java.io.FileOutputStream
 import java.math.RoundingMode
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.util.AbstractMap.SimpleEntry
 import kotlin.math.absoluteValue
 
 private val objectMapper = ObjectMapper().registerKotlinModule()
 private val client = OkHttpClient()
+
+private val cellNames = arrayOf(
+    "Buy / Dividends / Sell",
+    "Date",
+    "Price",
+    "Quantity",
+    "Total $",
+    "Fee $",
+    "Order $",
+    "Exchange Rate USD/PLN",
+    "Exchange Rate Date",
+    "Total PLN",
+    "Fee PLN",
+    "Order PLN"
+)
+
+private val cellTradeFunctions: Map<String, (Trade) -> Any> = mapOf(
+    "Buy / Dividends / Sell" to Trade::eventType,
+    "Date" to Trade::tradeDate,
+    "Price" to Trade::price,
+    "Quantity" to Trade::quantity,
+    "Total $" to Trade::total,
+    "Fee $" to Trade::fee,
+    "Order $" to Trade::bookedAmount,
+    "Exchange Rate USD/PLN" to Trade::plnExchangeRate,
+    "Exchange Rate Date" to Trade::plnExchangeRateDate,
+    "Total PLN" to { trade -> trade.total.times(trade.plnExchangeRate) },
+    "Fee PLN" to { trade -> trade.fee.times(trade.plnExchangeRate) },
+    "Order PLN" to { trade -> trade.bookedAmount.times(trade.plnExchangeRate) }
+)
 
 fun main() {
     val path = Paths.get("src/main/resources/trades.csv")
@@ -28,7 +63,40 @@ fun main() {
 
     val trades = csvParser.filterNotNull().filter { it["Type"] == "Trade" }.map { createTradeFromRecord(it) }.toList()
 
-    trades.groupBy { it.symbol }
+//    val groupBy: Map<String, List<Trade>> = trades.groupBy { it.symbol }
+    val groupBy: Map<String, List<Trade>> = trades.first().let {
+        mapOf(it.symbol to listOf(it))
+    }
+
+    val workbook = XSSFWorkbook()
+
+    groupBy.forEach {
+        toExcelSheet(workbook, it)
+    }
+
+    FileOutputStream("src/main/resources/result.xlsx").use { fileOut ->
+        workbook.write(fileOut)
+    }
+    workbook.close()
+}
+
+private fun toExcelSheet(workbook: XSSFWorkbook, shareEntry: Map.Entry<String, List<Trade>>): Sheet {
+    val sheet = workbook.createSheet(shareEntry.key)
+    val headerRow = sheet.createRow(0)
+    for ((index, cellTradeFunction) in cellTradeFunctions.entries.withIndex()) {
+        headerRow.createCell(index).also {
+            it.setCellValue(cellTradeFunction.key)
+        }
+    }
+    for ((index, trade) in shareEntry.value.withIndex()) {
+        val tradeRow = sheet.createRow(headerRow.rowNum.plus(index.plus(1)))
+        for ((index, cellTradeFunction) in cellTradeFunctions.entries.withIndex()) {
+            tradeRow.createCell(index, CellType.STRING).also {
+                it.setCellValue(cellTradeFunction.value(trade).toString())
+            }
+        }
+    }
+    return sheet
 }
 
 private fun createTradeFromRecord(record: CSVRecord): Trade {
@@ -36,7 +104,8 @@ private fun createTradeFromRecord(record: CSVRecord): Trade {
     val tradeDate = LocalDate.parse(record["Trade Date"], DateTimeFormatter.ofPattern("dd-MMM-yyyy"))
     val currency = record["Instrument currency"]
     val (previousWorkingDate, exchangeRate) = getExchangeRateOfPreviousWorkingDate(currency, tradeDate)
-    val total = record["Booked Amount"].toDouble().absoluteValue
+    val bookedAmount = record["Booked Amount"].toDouble().absoluteValue
+    val total = price.times(quantity)
     val trade = Trade(
         tradeDate = tradeDate,
         instrument = record["Instrument"],
@@ -44,11 +113,12 @@ private fun createTradeFromRecord(record: CSVRecord): Trade {
         currency = currency,
         exchange = record["Exchange Description"],
         symbol = record["Instrument Symbol"].substringBefore(":"),
-        total = total,
         eventType = eventType,
         quantity = quantity,
         price = price,
-        fee = total.minus(price.times(quantity)).toBigDecimal().setScale(2, RoundingMode.HALF_EVEN).toDouble(),
+        total = total,
+        bookedAmount = bookedAmount,
+        fee = bookedAmount.minus(total).toBigDecimal().setScale(2, RoundingMode.HALF_EVEN).toDouble(),
         plnExchangeRateDate = previousWorkingDate,
         plnExchangeRate = exchangeRate
     )
@@ -97,3 +167,4 @@ private fun getExchangeRate(currency: String, currencyRateDate: LocalDate): Doub
             return json?.get("rates")?.first()?.get("mid")?.asDouble()
         }
 }
+

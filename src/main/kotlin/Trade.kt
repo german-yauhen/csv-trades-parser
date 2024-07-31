@@ -11,6 +11,7 @@ data class Trade (
     val quantity: Int,
     val price: Double,
     val total: Double,
+    val bookedAmount: Double,
     val fee: Double,
     val plnExchangeRate: Double,
     val plnExchangeRateDate: LocalDate
