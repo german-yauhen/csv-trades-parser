@@ -5,7 +5,9 @@ import okhttp3.Request
 import org.apache.commons.csv.CSVFormat
 import org.apache.commons.csv.CSVRecord
 import org.apache.poi.ss.usermodel.CellType
+import org.apache.poi.ss.usermodel.HorizontalAlignment
 import org.apache.poi.ss.usermodel.Sheet
+import org.apache.poi.ss.util.CellReference
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import java.io.FileOutputStream
 import java.math.RoundingMode
@@ -14,41 +16,39 @@ import java.nio.file.Paths
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.util.AbstractMap.SimpleEntry
 import kotlin.math.absoluteValue
 
 private val objectMapper = ObjectMapper().registerKotlinModule()
 private val client = OkHttpClient()
+private const val ACTION = "Action"
+private const val DATE = "Date"
+private const val PRICE = "Price"
+private const val QUANTITY = "Quantity"
+private const val TOTAL = "Total $"
+private const val FEE = "Fee $"
+private const val ORDER = "Order $"
+private const val EXR = "EXR"
+private const val EXR_DATE = "EXR Date"
+private const val TOTAL_PLN = "Total PLN"
+private const val FEE_PLN = "Fee PLN"
+private const val ORDER_PLN = "Order PLN"
 
-private val cellNames = arrayOf(
-    "Buy / Dividends / Sell",
-    "Date",
-    "Price",
-    "Quantity",
-    "Total $",
-    "Fee $",
-    "Order $",
-    "Exchange Rate USD/PLN",
-    "Exchange Rate Date",
-    "Total PLN",
-    "Fee PLN",
-    "Order PLN"
+private val cellTradeFunctions: Map<String, Pair<CellType, (Trade) -> Any>> = mapOf(
+    ACTION to Pair(CellType.STRING, Trade::eventType),
+    DATE to Pair(CellType.STRING, Trade::tradeDate),
+    PRICE to Pair(CellType.NUMERIC, Trade::price),
+    QUANTITY to Pair(CellType.NUMERIC, Trade::quantity),
+    TOTAL to Pair(CellType.NUMERIC, Trade::total),
+    FEE to Pair(CellType.NUMERIC, Trade::fee),
+    ORDER to Pair(CellType.NUMERIC, Trade::bookedAmount),
+    EXR to Pair(CellType.NUMERIC, Trade::plnExchangeRate),
+    EXR_DATE to Pair(CellType.STRING, Trade::plnExchangeRateDate),
+    TOTAL_PLN to Pair(CellType.NUMERIC) { trade -> trade.total.times(trade.plnExchangeRate) },
+    FEE_PLN to Pair(CellType.NUMERIC) { trade -> trade.fee.times(trade.plnExchangeRate) },
+    ORDER_PLN to Pair(CellType.NUMERIC) { trade -> trade.bookedAmount.times(trade.plnExchangeRate) }
 )
 
-private val cellTradeFunctions: Map<String, (Trade) -> Any> = mapOf(
-    "Buy / Dividends / Sell" to Trade::eventType,
-    "Date" to Trade::tradeDate,
-    "Price" to Trade::price,
-    "Quantity" to Trade::quantity,
-    "Total $" to Trade::total,
-    "Fee $" to Trade::fee,
-    "Order $" to Trade::bookedAmount,
-    "Exchange Rate USD/PLN" to Trade::plnExchangeRate,
-    "Exchange Rate Date" to Trade::plnExchangeRateDate,
-    "Total PLN" to { trade -> trade.total.times(trade.plnExchangeRate) },
-    "Fee PLN" to { trade -> trade.fee.times(trade.plnExchangeRate) },
-    "Order PLN" to { trade -> trade.bookedAmount.times(trade.plnExchangeRate) }
-)
+private val summaryCells = listOf(QUANTITY, TOTAL, FEE, ORDER, TOTAL_PLN, FEE_PLN, ORDER_PLN)
 
 fun main() {
     val path = Paths.get("src/main/resources/trades.csv")
@@ -58,23 +58,12 @@ fun main() {
         .setSkipHeaderRecord(true)
         .setIgnoreSurroundingSpaces(true)
         .build()
-
     val csvParser = csvFormat.parse(reader)
-
     val trades = csvParser.filterNotNull().filter { it["Type"] == "Trade" }.map { createTradeFromRecord(it) }.toList()
-
-//    val groupBy: Map<String, List<Trade>> = trades.groupBy { it.symbol }
-    val groupBy: Map<String, List<Trade>> = trades.first().let {
-        mapOf(it.symbol to listOf(it))
-    }
-
+    val groupBy: Map<String, List<Trade>> = trades.groupBy { it.symbol }
     val workbook = XSSFWorkbook()
-
-    groupBy.forEach {
-        toExcelSheet(workbook, it)
-    }
-
-    FileOutputStream("src/main/resources/result.xlsx").use { fileOut ->
+    groupBy.forEach { toExcelSheet(workbook, it) }
+    FileOutputStream("src/main/resources/${System.currentTimeMillis()}.xlsx").use { fileOut ->
         workbook.write(fileOut)
     }
     workbook.close()
@@ -82,18 +71,52 @@ fun main() {
 
 private fun toExcelSheet(workbook: XSSFWorkbook, shareEntry: Map.Entry<String, List<Trade>>): Sheet {
     val sheet = workbook.createSheet(shareEntry.key)
+    val arial12 = workbook.createFont().apply {
+        fontName = "Arial"
+        fontHeightInPoints = 12
+    }
+    val cellStyle = workbook.createCellStyle().apply {
+        setFont(arial12)
+        setAlignment(HorizontalAlignment.CENTER)
+    }
     val headerRow = sheet.createRow(0)
     for ((index, cellTradeFunction) in cellTradeFunctions.entries.withIndex()) {
-        headerRow.createCell(index).also {
-            it.setCellValue(cellTradeFunction.key)
+        headerRow.createCell(index).apply {
+            setCellStyle(cellStyle)
+            setCellValue(cellTradeFunction.key)
         }
+//        sheet.setColumnWidth(index, 128)
     }
-    for ((index, trade) in shareEntry.value.withIndex()) {
+    val trades = shareEntry.value
+    for ((index, trade) in trades.withIndex()) {
         val tradeRow = sheet.createRow(headerRow.rowNum.plus(index.plus(1)))
         for ((index, cellTradeFunction) in cellTradeFunctions.entries.withIndex()) {
-            tradeRow.createCell(index, CellType.STRING).also {
-                it.setCellValue(cellTradeFunction.value(trade).toString())
+            tradeRow.createCell(index).apply {
+                val (type, tradeFun) = cellTradeFunction.value
+                val value = tradeFun(trade)
+                setCellStyle(cellStyle)
+                setCellType(type)
+                if (type == CellType.NUMERIC) {
+                    setCellValue(value.toString().toDouble())
+                } else {
+                    setCellValue(value.toString())
+                }
             }
+        }
+    }
+    val summaryRow = sheet.createRow(sheet.lastRowNum.plus(1))
+    val summaryCellsWithIndex = cellTradeFunctions.entries
+        .mapIndexed { index, entry -> entry.key to index }
+        .filter { (cellName, _) ->  cellName in summaryCells }
+        .toMap()
+    for (summaryCellWithIndex in summaryCellsWithIndex) {
+        val columnIndex = summaryCellWithIndex.value
+        val columnLetter = CellReference.convertNumToColString(columnIndex)
+        val formula = "SUM(${columnLetter}${headerRow.rowNum + 2}:${columnLetter}${trades.size + 1})"
+        summaryRow.createCell(columnIndex).apply {
+            setCellType(CellType.NUMERIC)
+            setCellStyle(cellStyle)
+            setCellFormula(formula)
         }
     }
     return sheet
