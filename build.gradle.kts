@@ -1,5 +1,8 @@
+val ktor_version: String by project
+
 plugins {
-    kotlin("jvm") version "1.9.23"
+    kotlin("jvm").version("2.0.10")
+    kotlin("plugin.serialization").version("2.0.10")
     application
 }
 
@@ -15,6 +18,10 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.16.0")
 
+    implementation("io.ktor:ktor-client-java:$ktor_version")
+    implementation("io.ktor:ktor-client-content-negotiation:$ktor_version")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:$ktor_version")
+
     implementation("org.apache.poi:poi:5.2.3")
     implementation("org.apache.poi:poi-ooxml:5.2.3")
 }
@@ -24,7 +31,7 @@ tasks.test {
 }
 
 kotlin {
-    jvmToolchain(8)
+    jvmToolchain(11)
 }
 
 application {

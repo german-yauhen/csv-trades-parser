@@ -1,5 +1,15 @@
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+import io.ktor.client.*
+import io.ktor.client.call.*
+import io.ktor.client.engine.java.*
+import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.request.*
+import io.ktor.http.*
+import io.ktor.serialization.kotlinx.json.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.*
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.apache.commons.csv.CSVFormat
@@ -19,7 +29,8 @@ import java.time.format.DateTimeFormatter
 import kotlin.math.absoluteValue
 
 private val objectMapper = ObjectMapper().registerKotlinModule()
-private val client = OkHttpClient()
+private val okHttpClient = OkHttpClient()
+private val httpClient = HttpClient(Java) { install(ContentNegotiation) { json() } }
 private const val ACTION = "Action"
 private const val DATE = "Date"
 private const val PRICE = "Price"
@@ -32,6 +43,7 @@ private const val EXR_DATE = "EXR Date"
 private const val TOTAL_PLN = "Total PLN"
 private const val FEE_PLN = "Fee PLN"
 private const val ORDER_PLN = "Order PLN"
+private const val SUMMARY = "Summary"
 
 private val cellTradeFunctions: Map<String, Pair<CellType, (Trade) -> Any>> = mapOf(
     ACTION to Pair(CellType.STRING, Trade::eventType),
@@ -50,9 +62,11 @@ private val cellTradeFunctions: Map<String, Pair<CellType, (Trade) -> Any>> = ma
 
 private val summaryCells = listOf(QUANTITY, TOTAL, FEE, ORDER, TOTAL_PLN, FEE_PLN, ORDER_PLN)
 
-fun main() {
+suspend fun main() {
     val path = Paths.get("src/main/resources/trades.csv")
-    val reader = Files.newBufferedReader(path)
+    val reader = withContext(Dispatchers.IO) {
+        Files.newBufferedReader(path)
+    }
     val csvFormat = CSVFormat.DEFAULT.builder()
         .setHeader()
         .setSkipHeaderRecord(true)
@@ -63,8 +77,10 @@ fun main() {
     val groupBy: Map<String, List<Trade>> = trades.groupBy { it.symbol }
     val workbook = XSSFWorkbook()
     groupBy.forEach { toExcelSheet(workbook, it) }
-    FileOutputStream("src/main/resources/${System.currentTimeMillis()}.xlsx").use { fileOut ->
-        workbook.write(fileOut)
+    withContext(Dispatchers.IO) {
+        FileOutputStream("src/main/resources/report${System.currentTimeMillis()}.xlsx").use { fileOut ->
+            workbook.write(fileOut)
+        }
     }
     workbook.close()
 }
@@ -72,7 +88,6 @@ fun main() {
 private fun toExcelSheet(workbook: XSSFWorkbook, shareEntry: Map.Entry<String, List<Trade>>): Sheet {
     val sheet = workbook.createSheet(shareEntry.key)
     val arial12 = workbook.createFont().apply {
-        fontName = "Arial"
         fontHeightInPoints = 12
     }
     val cellStyle = workbook.createCellStyle().apply {
@@ -85,10 +100,13 @@ private fun toExcelSheet(workbook: XSSFWorkbook, shareEntry: Map.Entry<String, L
             setCellStyle(cellStyle)
             setCellValue(cellTradeFunction.key)
         }
-//        sheet.setColumnWidth(index, 128)
+        sheet.setColumnWidth(index, 14 * 256)
     }
+
+    sheet.createFreezePane(0, 1)
+
     val trades = shareEntry.value
-    for ((index, trade) in trades.withIndex()) {
+    for ((index, trade) in trades.sortedBy { it.tradeDate }.withIndex()) {
         val tradeRow = sheet.createRow(headerRow.rowNum.plus(index.plus(1)))
         for ((index, cellTradeFunction) in cellTradeFunctions.entries.withIndex()) {
             tradeRow.createCell(index).apply {
@@ -107,8 +125,12 @@ private fun toExcelSheet(workbook: XSSFWorkbook, shareEntry: Map.Entry<String, L
     val summaryRow = sheet.createRow(sheet.lastRowNum.plus(1))
     val summaryCellsWithIndex = cellTradeFunctions.entries
         .mapIndexed { index, entry -> entry.key to index }
-        .filter { (cellName, _) ->  cellName in summaryCells }
+        .filter { (cellName, _) -> cellName in summaryCells }
         .toMap()
+    summaryRow.createCell(0).apply {
+        setCellStyle(cellStyle)
+        setCellValue(SUMMARY)
+    }
     for (summaryCellWithIndex in summaryCellsWithIndex) {
         val columnIndex = summaryCellWithIndex.value
         val columnLetter = CellReference.convertNumToColString(columnIndex)
@@ -122,7 +144,7 @@ private fun toExcelSheet(workbook: XSSFWorkbook, shareEntry: Map.Entry<String, L
     return sheet
 }
 
-private fun createTradeFromRecord(record: CSVRecord): Trade {
+private suspend fun createTradeFromRecord(record: CSVRecord): Trade {
     val (eventType, quantity, price) = extractEventData(record["Event"])
     val tradeDate = LocalDate.parse(record["Trade Date"], DateTimeFormatter.ofPattern("dd-MMM-yyyy"))
     val currency = record["Instrument currency"]
@@ -159,7 +181,7 @@ private fun extractEventData(event: String): Triple<String, Int, Double> {
     }
 }
 
-private fun getExchangeRateOfPreviousWorkingDate(currency: String, tradeDate: LocalDate): Pair<LocalDate, Double> {
+private suspend fun getExchangeRateOfPreviousWorkingDate(currency: String, tradeDate: LocalDate): Pair<LocalDate, Double> {
     var previousWorkingDate = getPreviousWorkingDate(tradeDate)
     var exchangeRate: Double? = getExchangeRate(currency, previousWorkingDate)
     while (exchangeRate == null) {
@@ -175,7 +197,8 @@ private fun getPreviousWorkingDate(tradeDate: LocalDate) = when (tradeDate.dayOf
     else -> tradeDate.minusDays(1)
 }
 
-private fun getExchangeRate(currency: String, currencyRateDate: LocalDate): Double? {
+@Deprecated("Decide to use Ktor instead")
+private fun getExchangeRateUsingOkHttp(currency: String, currencyRateDate: LocalDate): Double? {
     val date = DateTimeFormatter.ISO_DATE.format(currencyRateDate)
     val plnUrl = "http://api.nbp.pl/api/exchangerates/rates/a/$currency/$date"
     val request = Request.Builder()
@@ -183,11 +206,30 @@ private fun getExchangeRate(currency: String, currencyRateDate: LocalDate): Doub
         .url(plnUrl)
         .header("Accept", "application/json")
         .build()
-    client.newCall(request).execute()
+    okHttpClient.newCall(request).execute()
         .takeIf { it.isSuccessful }
         .use {
             val json = objectMapper.readTree(it?.body?.string())
             return json?.get("rates")?.first()?.get("mid")?.asDouble()
+        }
+}
+
+private suspend fun getExchangeRate(currency: String, currencyRateDate: LocalDate): Double? {
+    val date = DateTimeFormatter.ISO_DATE.format(currencyRateDate)
+    val plnUrl = "http://api.nbp.pl/api/exchangerates/rates/a"
+    val httpResponse = httpClient.get(plnUrl) {
+        url {
+            appendPathSegments(currency, date, encodeSlash = true)
+        }
+        headers {
+            accept(ContentType.parse("application/json"))
+        }
+    }
+    httpResponse
+        .takeIf { it.status.isSuccess() }
+        ?.body<JsonObject>()
+        .let {
+            return it?.get("rates")?.jsonArray?.first()?.jsonObject?.get("mid")?.jsonPrimitive?.double
         }
 }
 
