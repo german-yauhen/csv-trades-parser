@@ -31,6 +31,7 @@ import kotlin.math.absoluteValue
 private val objectMapper = ObjectMapper().registerKotlinModule()
 private val okHttpClient = OkHttpClient()
 private val httpClient = HttpClient(Java) { install(ContentNegotiation) { json() } }
+
 private const val ACTION = "Action"
 private const val DATE = "Date"
 private const val PRICE = "Price"
@@ -75,14 +76,14 @@ suspend fun main() {
     val csvParser = csvFormat.parse(reader)
     val trades = csvParser.filterNotNull().filter { it["Type"] == "Trade" }.map { createTradeFromRecord(it) }.toList()
     val groupBy: Map<String, List<Trade>> = trades.groupBy { it.symbol }
-    val workbook = XSSFWorkbook()
-    groupBy.forEach { toExcelSheet(workbook, it) }
-    withContext(Dispatchers.IO) {
-        FileOutputStream("src/main/resources/report${System.currentTimeMillis()}.xlsx").use { fileOut ->
-            workbook.write(fileOut)
+    XSSFWorkbook().use {
+        groupBy.forEach { group -> toExcelSheet(it, group) }
+        withContext(Dispatchers.IO) {
+            FileOutputStream("src/main/resources/report${System.currentTimeMillis()}.xlsx").use { fileOut ->
+                it.write(fileOut)
+            }
         }
     }
-    workbook.close()
 }
 
 private fun toExcelSheet(workbook: XSSFWorkbook, shareEntry: Map.Entry<String, List<Trade>>): Sheet {
