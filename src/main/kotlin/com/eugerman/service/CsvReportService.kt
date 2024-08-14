@@ -17,15 +17,16 @@ class CsvReportService {
         ACTION to Pair(CellType.STRING, Trade::eventType),
         DATE to Pair(CellType.STRING, Trade::tradeDate),
         PRICE to Pair(CellType.NUMERIC, Trade::price),
+        CURRENCY to Pair(CellType.STRING, Trade::currency),
         QUANTITY to Pair(CellType.NUMERIC, Trade::quantity),
         TOTAL to Pair(CellType.NUMERIC, Trade::total),
         FEE to Pair(CellType.NUMERIC, Trade::fee),
-        ORDER to Pair(CellType.NUMERIC, Trade::bookedAmount),
+        ORDER to Pair(CellType.NUMERIC, Trade::amount),
         EXR to Pair(CellType.NUMERIC, Trade::plnExchangeRate),
         EXR_DATE to Pair(CellType.STRING, Trade::plnExchangeRateDate),
         TOTAL_PLN to Pair(CellType.NUMERIC) { trade -> trade.total.times(trade.plnExchangeRate) },
         FEE_PLN to Pair(CellType.NUMERIC) { trade -> trade.fee.times(trade.plnExchangeRate) },
-        ORDER_PLN to Pair(CellType.NUMERIC) { trade -> trade.bookedAmount.times(trade.plnExchangeRate) }
+        ORDER_PLN to Pair(CellType.NUMERIC) { trade -> trade.amount.times(trade.plnExchangeRate) }
     )
 
     private val summaryCells = listOf(QUANTITY, TOTAL, FEE, ORDER, TOTAL_PLN, FEE_PLN, ORDER_PLN)
@@ -103,14 +104,15 @@ class CsvReportService {
         return sheet
     }
 
-    companion object {
+    companion object CellName {
         private const val ACTION = "Action"
         private const val DATE = "Date"
         private const val PRICE = "Price"
+        private const val CURRENCY = "Currency"
         private const val QUANTITY = "Quantity"
-        private const val TOTAL = "Total $"
-        private const val FEE = "Fee $"
-        private const val ORDER = "Order $"
+        private const val TOTAL = "Total"
+        private const val FEE = "Fee"
+        private const val ORDER = "Order"
         private const val EXR = "EXR"
         private const val EXR_DATE = "EXR Date"
         private const val TOTAL_PLN = "Total PLN"

@@ -37,9 +37,10 @@ fun Application.module() {
             call.response.header(
                 HttpHeaders.ContentDisposition,
                 ContentDisposition.Attachment
-                    .withParameter(ContentDisposition.Parameters.FileName, "trades-summary.xlsx").toString()
+                    .withParameter(ContentDisposition.Parameters.FileName, "trades-summary-${System.currentTimeMillis()}.xlsx").toString()
             )
             call.respondFile(report)
+            report.delete()
         }
     }
 }

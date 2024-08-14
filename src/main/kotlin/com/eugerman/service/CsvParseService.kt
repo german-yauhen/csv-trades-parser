@@ -4,10 +4,10 @@ import Trade
 import org.apache.commons.csv.CSVFormat
 import org.apache.commons.csv.CSVRecord
 import java.io.Reader
+import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import kotlin.math.absoluteValue
 
 class CsvParseService {
 
@@ -32,8 +32,13 @@ class CsvParseService {
         val currency = record["Instrument currency"]
         val (previousWorkingDate, exchangeRate) =
             exchangeRateService.getExchangeRateOfPreviousWorkingDate(currency, tradeDate)
-        val bookedAmount = record["Booked Amount"].toDouble().absoluteValue
-        val total = price.times(quantity)
+        val conversionRate = record["Conversion Rate"].toBigDecimal()
+        val amount = if (BigDecimal.ONE == conversionRate) {
+            record["Amount"].toBigDecimal()
+        } else {
+            record["Amount"].toBigDecimal().div(conversionRate).abs()
+        }
+        val total = price.times(quantity).toBigDecimal()
         val trade = Trade(
             tradeDate = tradeDate,
             instrument = record["Instrument"],
@@ -44,9 +49,9 @@ class CsvParseService {
             eventType = eventType,
             quantity = quantity,
             price = price,
-            total = total,
-            bookedAmount = bookedAmount,
-            fee = bookedAmount.minus(total).toBigDecimal().setScale(2, RoundingMode.HALF_EVEN).toDouble(),
+            total = total.setScale(2, RoundingMode.HALF_EVEN).toDouble(),
+            amount = amount.setScale(2, RoundingMode.HALF_EVEN).toDouble(),
+            fee = amount.minus(total).setScale(2, RoundingMode.HALF_EVEN).toDouble(),
             plnExchangeRateDate = previousWorkingDate,
             plnExchangeRate = exchangeRate
         )

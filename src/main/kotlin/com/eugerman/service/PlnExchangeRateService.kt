@@ -59,7 +59,7 @@ class PlnExchangeRateService {
             .takeIf { it.status.isSuccess() }
             ?.body<JsonObject>()
             .let {
-                return it?.get("rates")?.jsonArray?.first()?.jsonObject?.get("mid")?.jsonPrimitive?.double
+                return it!!["rates"]!!.jsonArray.first().jsonObject["mid"]!!.jsonPrimitive.double
             }
     }
 
@@ -76,7 +76,7 @@ class PlnExchangeRateService {
             .takeIf { it.isSuccessful }
             .use {
                 val json = objectMapper.readTree(it?.body?.string())
-                return json?.get("rates")?.first()?.get("mid")?.asDouble()
+                return json!!["rates"].first()!!["mid"].asDouble()
             }
     }
 }
