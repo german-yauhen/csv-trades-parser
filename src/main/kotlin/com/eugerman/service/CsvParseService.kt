@@ -5,6 +5,7 @@ import org.apache.commons.csv.CSVFormat
 import org.apache.commons.csv.CSVRecord
 import java.io.Reader
 import java.math.BigDecimal
+import java.math.MathContext
 import java.math.RoundingMode
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -34,11 +35,11 @@ class CsvParseService {
             exchangeRateService.getExchangeRateOfPreviousWorkingDate(currency, tradeDate)
         val conversionRate = record["Conversion Rate"].toBigDecimal()
         val amount = if (BigDecimal.ONE == conversionRate) {
-            record["Amount"].toBigDecimal()
+            record["Amount"].toBigDecimal().abs()
         } else {
-            record["Amount"].toBigDecimal().div(conversionRate).abs()
-        }
-        val total = price.times(quantity).toBigDecimal()
+            record["Amount"].toBigDecimal().abs().divide(conversionRate, MathContext.DECIMAL32)
+        }.setScale(2, RoundingMode.HALF_EVEN).toDouble()
+        val total = price.times(quantity).toBigDecimal().setScale(2, RoundingMode.HALF_EVEN).toDouble()
         val trade = Trade(
             tradeDate = tradeDate,
             instrument = record["Instrument"],
@@ -49,9 +50,9 @@ class CsvParseService {
             eventType = eventType,
             quantity = quantity,
             price = price,
-            total = total.setScale(2, RoundingMode.HALF_EVEN).toDouble(),
-            amount = amount.setScale(2, RoundingMode.HALF_EVEN).toDouble(),
-            fee = amount.minus(total).setScale(2, RoundingMode.HALF_EVEN).toDouble(),
+            total = total,
+            amount = amount,
+            fee = amount.minus(total),
             plnExchangeRateDate = previousWorkingDate,
             plnExchangeRate = exchangeRate
         )
