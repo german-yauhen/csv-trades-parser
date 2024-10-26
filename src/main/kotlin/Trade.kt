@@ -10,8 +10,8 @@ data class Trade (
     val eventType: String,
     val quantity: Int,
     val price: Double,
-    val total: Double,
-    val amount: Double,
+    val sharesPrice: Double,
+    val orderPrice: Double,
     val fee: Double,
     val plnExchangeRate: Double,
     val plnExchangeRateDate: LocalDate

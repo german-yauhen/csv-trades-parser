@@ -55,15 +55,17 @@ class PlnExchangeRateService {
                 accept(ContentType.parse("application/json"))
             }
         }
-        httpResponse
-            .takeIf { it.status.isSuccess() }
-            ?.body<JsonObject>()
-            .let {
-                return it!!["rates"]!!.jsonArray.first().jsonObject["mid"]!!.jsonPrimitive.double
-            }
+        return if (httpResponse.status.isSuccess()) {
+            httpResponse.body<JsonObject>()["rates"]!!.jsonArray.first().jsonObject["mid"]!!.jsonPrimitive.double
+        } else {
+            null
+        }
     }
 
-    @Deprecated("Decide to use Ktor instead", ReplaceWith("com.eugerman.service.PlnExchangeRateService.getExchangeRate"))
+    @Deprecated(
+        "Decide to use Ktor instead",
+        ReplaceWith("com.eugerman.service.PlnExchangeRateService.getExchangeRate")
+    )
     private fun getExchangeRateUsingOkHttp(currency: String, currencyRateDate: LocalDate): Double? {
         val date = DateTimeFormatter.ISO_DATE.format(currencyRateDate)
         val plnUrl = "http://api.nbp.pl/api/exchangerates/rates/a/$currency/$date"
@@ -72,11 +74,11 @@ class PlnExchangeRateService {
             .url(plnUrl)
             .header("Accept", "application/json")
             .build()
-        okHttpClient.newCall(request).execute()
-            .takeIf { it.isSuccessful }
-            .use {
-                val json = objectMapper.readTree(it?.body?.string())
-                return json!!["rates"].first()!!["mid"].asDouble()
-            }
+        val response = okHttpClient.newCall(request).execute()
+        return if (response.isSuccessful) {
+            objectMapper.readTree(response.body?.string())!!["rates"].first()!!["mid"].asDouble()
+        } else {
+            null
+        }
     }
 }
