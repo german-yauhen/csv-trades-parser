@@ -31,18 +31,25 @@ class CsvParseService {
     }
 
     private suspend fun createTradeFromRecord(record: CSVRecord): Trade {
-        val (eventType, quantity, price) = extractEventData(record["Event"])
+        val quantitySigned = record["Quantity"].toInt()
+        val eventType = """^(Buy|Sell)""".toRegex().find(record["Event"])?.value
+        if (eventType == null || (eventType == "Buy" && quantitySigned <= 0) || (eventType == "Sell" && quantitySigned >= 0)) {
+            throw IllegalArgumentException()
+        }
+        val quantity = quantitySigned.absoluteValue
         val tradeDate = LocalDate.parse(record["Trade Date"], DateTimeFormatter.ofPattern("dd-MMM-yyyy"))
+        val price = record["Price"].filter { it.isDigit() || it == '.' }.toDouble()
         val currency = record["Instrument currency"]
         val (previousWorkingDate, exchangeRate) =
             exchangeRateService.getExchangeRateOfPreviousWorkingDate(currency, tradeDate)
         val conversionRate = record["Conversion Rate"].toBigDecimal()
         val orderPrice = if (BigDecimal.ONE == conversionRate) {
-            record["Amount"].toBigDecimal()
+            record["Booked Amount"].toBigDecimal()
         } else {
-            record["Amount"].toBigDecimal().divide(conversionRate, MathContext.DECIMAL32)
+            record["Booked Amount"].toBigDecimal().divide(conversionRate, MathContext.DECIMAL32)
         }.setScale(2, RoundingMode.HALF_EVEN).toDouble()
         val sharesPrice = price.times(quantity).toBigDecimal().setScale(2, RoundingMode.HALF_EVEN).toDouble()
+        val fee = record["Total cost"].toDouble().absoluteValue
         val trade = Trade(
             tradeDate = tradeDate,
             instrument = record["Instrument"],
@@ -55,21 +62,11 @@ class CsvParseService {
             price = price,
             sharesPrice = sharesPrice,
             orderPrice = orderPrice,
-            fee = orderPrice.minus(sharesPrice).absoluteValue,
+            fee = fee,
             plnExchangeRateDate = previousWorkingDate,
             plnExchangeRate = exchangeRate
         )
         return trade
     }
 
-    private fun extractEventData(event: String): Triple<String, Int, Double> {
-        val regex = """(Buy|Sell)\s+(\d+)\s+@\s+([\d.]+)""".toRegex()
-        val matchResult = regex.find(event)
-        return if (matchResult != null) {
-            val (action, quantity, price) = matchResult.destructured
-            Triple(action, quantity.toInt(), price.toDouble())
-        } else {
-            Triple(event, 0, 0.0)
-        }
-    }
 }

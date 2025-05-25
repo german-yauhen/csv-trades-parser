@@ -38,6 +38,12 @@ class PlnExchangeRateService {
         return Pair(previousWorkingDate, exchangeRate)
     }
 
+    /*
+    The json that contains two fields. The first field named as "holidays" is an array of public holidays in Poland for 2024 in the format "dd-MM-yyyy", the second field named as "format" is the format of the date. Display only pure json response.
+     */
+    /*
+    The json that contains an array of public holidays in Poland for 2024 in the format in the format dd-MM-yyyy. Display only pure json response.
+     */
     fun getPreviousWorkingDate(tradeDate: LocalDate) = when (tradeDate.dayOfWeek) {
         DayOfWeek.MONDAY -> tradeDate.minusDays(3)
         DayOfWeek.SUNDAY -> tradeDate.minusDays(2)
